@@ -6,24 +6,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import geopandas as gpd 
-from statistics import mean, stdev
+#from statistics import mean, stdev
 from pyimpute import load_training_vector, load_targets, impute
 import joblib
-from sklearn import model_selection
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, cross_val_score, learning_curve, StratifiedKFold, RepeatedStratifiedKFold
+#from sklearn import model_selection
+from sklearn.model_selection import RandomizedSearchCV, cross_val_score, StratifiedKFold, RepeatedStratifiedKFold
 from numpy import mean, std
 from scipy.stats import uniform as sp_randFloat, randint as sp_randInt
 from sklearn.multiclass import OneVsOneClassifier 
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
-from xgboost import XGBClassifier, XGBRegressor
-from lightgbm import LGBMClassifier
-from sklearn2pmml import sklearn2pmml, PMMLPipeline, dill
-from sklearn.metrics import confusion_matrix, roc_curve, f1_score, precision_recall_curve, accuracy_score, roc_auc_score, classification_report, make_scorer, precision_score
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn2pmml import sklearn2pmml, PMMLPipeline
+from sklearn.metrics import confusion_matrix, roc_auc_score, classification_report, make_scorer
 from sklearn.feature_selection import RFECV
 from shapely.geometry import Point
-
-#---------------------- THE FIRST PART OF THE CODE IS FOR FEATURE SELECTION ----------------------------------------
-# ------ IN THE FOLLOWING PIECE OF CODE WE WILL REDUCE THE NUMBER OF DESCRIPTOR VARIABLES FOR OUR FINAL SDM ------
 
 #Input and Output workspaces: 
 my_workspace = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\model\6_pred" 
@@ -35,27 +31,29 @@ os.makedirs(input_folder, exist_ok=True)
 os.makedirs(output_folder, exist_ok=True)
 
 # Import the sample data:
-sample_data = gpd.GeoDataFrame.from_file(r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\data\random_500_points.shp")
+sample_path = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\data\random_500_points.shp"
+sample_data = gpd.GeoDataFrame.from_file(sample_path)
 
 # Convert the Geopandas DataFrames X_df (descriptors) and Y_df (response) variables:
-#X_df = sample_data.loc[:, ["dist_fresh", "dist_OSM_c", "elev_MHW", "dist_MAT", "dist_MSHW", "dist_MHW", "dist_MNHW", "dist_MSL"]]
 #X_df = sample_data.loc[:, ["dist_fresh","elev_MHW", "dist_MAT", "dist_MSHW", "dist_MHW", "dist_MNHW", "dist_MSL"]]
-X_df = sample_data.loc[:, ["elev_MHT", "dist_MAT", "dist_mshw", "dist_MNHW", "dist_MSL", "dist_MHW"]]
-y_df = sample_data["class"].values.ravel()
+X_df = sample_data.loc[:, ["elev_MHT", "dist_MAT", "dist_mshw", "dist_MNHW", "dist_MSL", "dist_MHW"]]   # Field names with the predictor variables
+y_df = sample_data["class"].values.ravel()  # Target habitats/categories
 print(X_df)
+
+#------------------------------------------------------------- THE FIRST PART OF THE CODE IS FOR FEATURE SELECTION -------------------------------------------------------------------
+
+# ------ IN THE FOLLOWING PIECE OF CODE WE WILL REDUCE THE NUMBER OF DESCRIPTOR VARIABLES FOR OUR FINAL Species Distribution Model/Machine Learning classifier -----------------------
 
 # Step 1: Define the Random Forest Classifier for feature selection:
 rf_classifier = RandomForestClassifier(random_state=1)
 
 # Scorer for feature elimination:
-f_scorer = make_scorer(roc_auc_score, needs_proba=True,  average='macro', multi_class='ovo')
-# f_scorer = make_scorer(f1_score, average='macro')
-#f_scorer = make_scorer(accuracy_score)
+roc_auc_scorer = make_scorer(roc_auc_score, needs_proba=True,  average='macro', multi_class='ovo')
 
 # Step 2: Perform Recursive Feature Elimination with Cross-Validation (RFECV)
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=1)
-rfecv = RFECV(estimator=rf_classifier, step=1, cv=cv, scoring=f_scorer)
-rfecv.fit(X_df, y_df)
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=1)  # Define nº of splits and other configurations
+rfecv = RFECV(estimator=rf_classifier, step=1, cv=cv, scoring=roc_auc_scorer)   # Configure the RFECV
+rfecv.fit(X_df, y_df)   # Fit the model
 
 # Step 3: Print feature importances:
 print("Feature Importances:")
@@ -73,7 +71,7 @@ for i in range(5):  # Assuming 5 splits
 sns.lineplot(x=range(1, len(rfecv.cv_results_['mean_test_score']) + 1), y=rfecv.cv_results_['mean_test_score'], color='b', linewidth=2, label='Mean Accuracy')
 plt.xlabel("Number of selected Predictors ")
 plt.ylabel("Macro-average ROC AUC Score")
-plt.ylim(0.7, 1)  # Set Y axis limits from 0.2 to 1
+plt.ylim(0.7, 1)  # Set Y axis limits from 0.7 to 1
 plt.legend(title='Splits', loc='lower right')
 plt.title("Cross-Validated ROC AUC Score vs. Number of Features")
 plt.grid()
@@ -81,9 +79,6 @@ plt.grid()
     #Save the graphic in a PNG file:
 plot_filename = os.path.join(output_folder, "cv_accuracy_n_features.png")
 plt.savefig(plot_filename)
-
-    # Show the grahic that shows how the Macro Average ROC AUC Score changes with Number of features selected:
-#plt.show()
 
 # Step 5: plot feature importance as a bar plot
 
@@ -101,10 +96,10 @@ custom_labels = {
     # Add more custom labels as needed
 }
 
-# Rename DataFrame columns to match custom labels
+    # Rename DataFrame columns to match custom labels
 X_df_renamed = X_df.rename(columns=custom_labels)
 
-# Plot feature importance as a bar plot with custom X-axis labels
+    # Plot feature importance as a bar plot with custom X-axis labels
 plt.figure(figsize=(15, 11))
 sns.barplot(x=X_df_renamed.columns, y=rfecv.estimator_.feature_importances_)
 plt.xticks(rotation=45, ha='right', fontsize=7)
@@ -113,12 +108,12 @@ plt.ylabel("Feature Importance")
 plt.title("Feature Importance")
 plt.grid()
 
-# Save the feature importance graphic in a PNG file:
-feature_importance_filename = os.path.join(output_folder, "feature_importance.png")
+    # Save the feature importance graphic in a PNG file:
+feature_importance_filename = os.path.join(output_folder, "feature_importance.png") # Save predictor importance plot
 plt.savefig(feature_importance_filename)
 
 # Step 6: Select the N most important features 
-num_features_to_keep = 6
+num_features_to_keep = 6    # Notice that this should be based on the previous two plots
 selected_feature_indices = np.argsort(rfecv.estimator_.feature_importances_)[::-1][:num_features_to_keep]
 selected_features = X_df.columns[selected_feature_indices]
 
@@ -138,19 +133,24 @@ shapefile_path = os.path.join(output_folder, "resulting_gdf.shp")
 resulting_gdf = gpd.GeoDataFrame(resulting_gdf, geometry='geometry')
 resulting_gdf.to_file(shapefile_path)
 
-# Import the GeoDataFrame from the saved shapefile
+
+# ---------------------------------------------------------- CLEARED TRAINING DATASET CREATED! --------------------------------------------------------------------------------------
+
+
+
+# ----------------------------------------------------------- XGB train, test and validation ----------------------------------------------------------------------------------------
+
+# Step 1: Import the GeoDataFrame from the saved shapefile
 reimported_gdf = gpd.GeoDataFrame.from_file(shapefile_path)
 
-#-- ONCE WE HAVE THE BEST DESCRIPTOR VARIABLES, WE HAVE TO TRAIN OUR CLASSIFIER MODEL, IN THIS CASE XGB CLASSIFIER --
-
 # Step 2: Load the descriptor variables folder and filter the folder to keep just the X most important ones:
-predictors_path = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\data\predictors_clipped"
+predictors_path = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\data\predictors_clipped" # Workspace where the predictors .tif are stored. Notice that all predictors SHOULD HAVE same size (nº rows & columns)
 
-# Step 2.1: Create 'selected_predictors' folder in 'input_folder'
+    # Step 2.1: Create 'selected_predictors' folder in 'input_folder'
 selected_predictors_folder = os.path.join(input_folder, "selected_predictors")
 os.makedirs(selected_predictors_folder, exist_ok=True)
 
-# Step 2.2: Define a dictionary that maps the selected feature names to their corresponding file paths
+    # Step 2.2: Define a dictionary that maps the selected feature names to their corresponding file paths. Change names accordingly to match .tif names in 'predictors_path'
 selected_features_files = {
     #'dist_fresh': os.path.join(predictors_path, 'distance_to_freshwater_river_inputs_25830.tif'),
     #'dist_OSM_c': os.path.join(predictors_path, 'distance_to_OSM_coastline_25830.tif'),
@@ -163,8 +163,7 @@ selected_features_files = {
     'dist_MSL': os.path.join(predictors_path, 'distance_to_MSL_countour_corrected.tif')  
 }
 
-# Step 3: Use the selected feature names from RFECV to copy the corresponding predictor raster files and create an array with the 
-# predictor raster paths in order of importance:
+# Step 3: Use the selected feature names from RFECV to copy the corresponding predictor raster files and create an array with the predictor raster paths in order of importance:
 raster_predictors = []
 
 for feature in selected_features:
@@ -177,7 +176,7 @@ for feature in selected_features:
 print("{} raster predictors will be used in the computation".format(len(raster_predictors)))
 print(raster_predictors)
 
-# Step 4: We are now ready to use pyimpute to generate the raster maps of suitability. We first prep the pyimpute workflow:
+# Step 4: Prepare the pyimpute workflow:
 print("Preparing pyimpute workflow...")
 # Load training vector
 train_xs, train_y = load_training_vector(reimported_gdf, raster_predictors, response_field='class')
@@ -192,36 +191,32 @@ CLASS_MAP = {
         'params': {
             'learning_rate': sp_randFloat(),
             'subsample': sp_randFloat(),
-            'n_estimators': sp_randInt(100, 300),
-            'max_depth': sp_randInt(2, 6)
+            'n_estimators': sp_randInt(100, 300),   # Define the range where RandomSearch will search for the best hyperparameter value
+            'max_depth': sp_randInt(2, 6)   # Define the range of tree depth where RandomSearch will try to find the best hyperparameter value
         }
     }
-    # 'rf': RandomForestClassifier(),
-    # 'et': ExtraTreesClassifier(),
-    # 'lgbm': LGBMClassifier()
 }
 
-# Lists to store results for each classifier
-results = []
+# Step 6: Lists to store results for XGBoost classifier
+#results = []
 best_estimators = []
 
 # Step 7: Implement Nested Cross Validation:
-for name, classifier_info in CLASS_MAP.items():
-    model = classifier_info['model']
-    params = classifier_info['params']
+for name, classifier_info in CLASS_MAP.items(): # Create a loop just in case you want to try more than 1 classifier.
+    model = classifier_info['model']    # Pick model information
+    params = classifier_info['params']  # Pick model parameters configuration
 
     # Scorer for multiclassification problem in an imbalanced dataset:
-    scorer = make_scorer(roc_auc_score, needs_proba=True,  average='macro', multi_class='ovo')
+    scorer = make_scorer(roc_auc_score, needs_proba=True,  average='macro', multi_class='ovo')  # Define scorer strategy
 
-    # Step 7: Inner Loop:
+    # Inner Loop of nested cross-validation:
     inner_cv = StratifiedKFold(n_splits=5, shuffle = True, random_state=42)
 
-    # Step 8: Outer Loop:
+    # Outer Loop of nested cross-validation:
     outer_cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=None)
 
-    # Step 9: Initialize RandomizedSearchCV with the classifier, parameter grid and inner CV:
-    # Number of parameter settings that are sampled:
-    iter_number = 20
+    # Define RandomizedSearchCV with the classifier, parameter grid and inner CV:
+    iter_number = 20    # Number of parameter settings that are sampled:
     search = RandomizedSearchCV(model.estimator, param_distributions=params, n_iter=iter_number, cv=inner_cv, scoring=scorer, refit=True, return_train_score=True)
 
     # Clean and Initialize a variable to store the Best Estimator:
@@ -234,11 +229,8 @@ for name, classifier_info in CLASS_MAP.items():
         y_train_outer, y_test_outer = train_y[train_outer], train_y[test_outer]
 
             # Give Weight to the classess: In this case we will give more weight to the Mudflat, Channel and Saltmarsh classess
-            # as Upland Areas are less important in our case as predicting one of the three classes as Upland Areas will not 
-            # return a high error as the elevation of this class implies low accretions but the oposite case will involve a 
-            # higher error.
-        class_weights = {0:10, 1:10, 2:1, 3:10}
-
+            # as Upland Areas are less important in our case.
+        class_weights = {0:10, 1:10, 2:1, 3:10} # Class codes and values. Each code refer to 1 habitat/category
 
         # Fit RandomizedSearchCV on the training data to find the best estimator:
         result = search.fit(X_train_outer, y_train_outer, sample_weight=[class_weights[label] for label in y_train_outer])
@@ -260,35 +252,40 @@ for name, classifier_info in CLASS_MAP.items():
     print("Number of Estimators:", best_estimator.n_estimators)
     print("Max Depth:", best_estimator.max_depth)
 
-    # Create a folder for each Classifier in the 'output_folder':
+    # Step 8: Create a folder for each Classifier in the 'output_folder':
     ml_out_folder_path = os.path.join(output_folder, name + '_images')
     if os.path.isdir(ml_out_folder_path):
         shutil.rmtree(ml_out_folder_path)
     os.mkdir(ml_out_folder_path)
 
-    # Step 12: Use the best_estimator to make predictions and save the results:
+    # Step 9: Use the best_estimator to make predictions and save the results:
     impute(target_xs, best_estimator, raster_info, outdir=ml_out_folder_path, class_prob=True, certainty=True)
 
-    # Step 13: Save the best_estimator (trained XGBClassifier) as a PMML file:
+    # Step 10: Save the best_estimator (trained XGBClassifier) as a PMML file:
     pmml_filename = os.path.join(output_folder, f'{name}_best_model_pmml.pmml')
     if os.path.exists(pmml_filename):
         os.remove(pmml_filename)
 
-    # Create a PMMLPipeline and add the classifier to it
+    # Step 11: Create a PMMLPipeline and add the classifier to it
     pmml_pipeline = PMMLPipeline([("classifier", search.best_estimator_)])
 
-    # Save the PMMLPipeline as a PMML file
+    # Step 12: Save the PMMLPipeline as a PMML file
     sklearn2pmml(pmml_pipeline, pmml_filename)
 
-    # Save the best_estimator (trained XGBClassifier) as a .joblib file (if needed):
+    # Step 13: Save the best_estimator (trained XGBClassifier) as a .joblib file (if needed):
     joblib.dump(best_estimator, os.path.join(output_folder, f"{name}_best_model_joblib.joblib"))
-    #----------------------------------------------------------------------------------------------
+
+    # ------------------------------------------------------ XGBoost train, test and validation Done! --------------------------------------------------------------------------------
+
+
+    # ---------------------------------------------- Now we compute the confussion matrices with the best estimator ------------------------------------------------------------------
 
     # Define variables for average classification report and confussion matrices:
     originalclass = []
     predictedclass = []
     confusion_matrices = []
 
+    # Create a function to store the custom ROC AUC scorer:
     def custom_roc_auc_scorer(y_true, y_pred_probabilities):
         y_pred = np.argmax(y_pred_probabilities, axis=1)
         originalclass.extend(y_true)
@@ -296,14 +293,14 @@ for name, classifier_info in CLASS_MAP.items():
         confusion_matrices.append(confusion_matrix(y_true, y_pred))
         return roc_auc_score(y_true, y_pred_probabilities, average='macro', multi_class='ovo')
 
-    # Usage in cross-validation
+    # Use it in cross-validation
     cross_val_scores = cross_val_score(best_estimator, train_xs, train_y, cv=outer_cv, scoring=make_scorer(custom_roc_auc_scorer, needs_proba=True))
 
     # Print cross validation scores and mean score:
     print(cross_val_scores)
     print(np.mean(cross_val_scores.tolist()))
 
-    # After the nested cross-validation loop
+    # After the nested cross-validation loop we create a classification report also:
     classification_report_str = classification_report(originalclass, predictedclass)
 
     # Convert the classification report string to a DataFrame
@@ -333,3 +330,5 @@ for name, classifier_info in CLASS_MAP.items():
     plt.title('Average Confusion Matrix (Percentages)')
     plt.savefig(confusion_matrix_filename, bbox_inches='tight')
     plt.close()
+
+    #   -------------------------------------------------------------- MODEL METRICS COMPUTED! --------------------------------------------------------------------------------------

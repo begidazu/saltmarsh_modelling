@@ -1,13 +1,3 @@
-# ----------    THIS CODE IMPLEMENTS A WETLAND EVOLUTION MODEL BASED ON SEVERAL INPUTS THAT SHOULD BE      --------
-# ----------    DEFINED BY THE USER. THESE INPUTS ARE: WETLAND VEGETATION CLASS, DIGITAL ELEVATION MODEL, ---------
-# ------------- PRECOMPUTED CLASS DISTRIBUTION MODEL, SEA LEVEL REFERENCES REGARDING THE DEM AND ARE SELECTED -----
-# ------------------------------ AS IMPORTANT FEATURES FOR THE MODELLING, -----------------------------------------
-# ------------- HISTORIC SUSPENDED MATTER CONCENTRATION, DECAY CONSTANT (IN THE PLATFORM), ------------------------
-# ------------- AVERAGE ACCRETION (BY SPECIES BETTER) & SEA LEVEL RISE RATES OF SCENARIOS -------------------------
-
-
-# Load the needed Python libraries: 
-#import fnmatch
 import geopandas as gpd
 import joblib
 import numpy as np
@@ -18,24 +8,23 @@ import pyproj
 import rasterio
 from rasterio.transform import from_origin
 
-# ------------------------------------------ OUTPUT FOLDER ---------------------------------------------------------
+# Output workspace:
 out_folder = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\evolution\glo_rcp45_slr_1_075m"
 
-# ----------------------------------------------- INPUTS: ----------------------------------------------------------
+# ------------------------------------------------------------------------- INPUTS --------------------------------------------------------------------------------------------------
 
-# Raster files and Coordinate System:
-    # Classification map:
+    # Baseline habitat map (classier result):
 saltmarsh_vegetation = rasterio.open(r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\model\5_pred\outputs\xgbc_images\responses.tif")
-    # Elevation (DTM):
+    # Elevation (DTM) in m:
 elevation_path = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\data\Puerto_Real_DTM_interpolated_clipped.tif"
     # Coordinate System:
 crs = pyproj.CRS.from_epsg(25829) # Coordinate System EPSG code
 
-# Load Precomputed Species Distribution Model (.joblib):
+    # Load precomputed Classifier (.joblib):
 joblib_file = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\model\5_pred\outputs\xgbc_best_model_joblib.joblib"
 sdm = joblib.load(joblib_file) 
 
-# Sea Level References with regards to the Digital Elevation Model:
+    # Sea Level References with regards to the Digital Elevation Model:
 msl = 0.000
 mnhw = 0.880
 mhw = 1.137
@@ -43,23 +32,20 @@ mshw = 1.346
 maht = 2.029
 
 # Historic Suspended Matter Concentration (Could be obtained from Copernicus Marine Service: https://data.marine.copernicus.eu/products):
-historic_ss = 25.00 # Average value of SS in the main channel from 2020 to 2022 (both included)
+historic_ss = 25.00 # Average value of SS in the main channel
 decay_constant = -0.031 
 
 # Average Accretion of saltmarsh in m/yr:
-avg_accretion = 0.0059 # Paper to justify the amount
+avg_accretion = 0.0059 
 
 # Settling coefficient without vegetation:
 setling_coefficient = 0.00009 # Paper: Kirwan, M. L., Guntenspergen, G. R., D’Alpaos, A., Morris, J. T., Mudd, S. M. & Temmerman, S. 2010. Limits on the adaptability of coastal marshes to rising sea level. Geophysical Research Letters, 37
 
-# Sea Level Rise and Suspended Matter Scenarios:
-# slr_rates = [0.0025, 0.005, 0.01]
-# ss_values = [(historic_ss/2), historic_ss, (historic_ss*2)]
-
-slr_rates = [0.01075]
+# Sea Level Rise rate (m/yr) and Suspended Matter Concentration Scenario values (g/m3):
+slr_rates = [0.01075] 
 ss_values = [(historic_ss*2)]
 
-# VALUES OF THE CLASSES (Class codes in the 'saltmarsh_vegetation' .tif, line 28):
+# Baseline habitat map codes:
 mudflat_code = 0
 saltmarsh_code = 1
 upland_code = 2
@@ -67,43 +53,49 @@ channel_code = 3
 
 # Analysis area (mask):
 analysis = rasterio.open(r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\data\analysis_area.tif")
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# ------------------------------------------------------------------------------------------------------------------
 
-# ---------------------------- COMPUTATION OF THE BASE CONDITIONS FOR THE MODEL ------------------------------------
+
+# ----------------------------------------------------------------- COMPUTATION OF THE BASE CONDITIONS FOR THE MODEL -----------------------------------------------------------------
 
 # Open the Elevation dataset:
 #elevation = rasterio.open(elevation_path)
 
-# Get Bounding Box, cellsize, transformation and nº of rows and columns of the study area (elevation has the same charateristics):
+# Step 1: Get Bounding Box, cellsize, transformation and nº of rows and columns of the study area (elevation has the same charateristics):
 with rasterio.open(elevation_path) as elevation_data:
+
     elevation = elevation_data.read(1).astype(float)
     bounding_box = elevation_data.bounds
+
     # Pixel size:
     x_size = elevation_data.transform[0]
     y_size = abs(elevation_data.transform[4])
+
     # Extract the coordinates
     x_min = bounding_box.left
     x_max = bounding_box.right
     y_min = bounding_box.bottom
     y_max = bounding_box.top
+
     # Width and Height of the output raster:
     width = int((x_max - x_min) / x_size)
     height = int((y_max - y_min) / y_size)
+
     # Transformation:
     transform = from_origin(x_min, y_max, x_size, y_size)
 
 # Reset Elevation Data:
 elevation = rasterio.open(elevation_path)
 
-# ----- STEP 1: FILTER THE VEGETATION MAP AND OBTAIN THE PRESENCE OF WETLAND (HALOPHITIC SPECIES PLUS MUDFLAT): ----
+# Step 2: Filter the habitat map and obtain the saltmarsh presence area:
     
     # Read the classification file, the elevation dataset and the analysis area as NumPy arrays:
 analysis_data = analysis.read(1)
 saltmarsh_veg = saltmarsh_vegetation.read(1)
 elevation_data = elevation.read(1)
 
-    # Filter the classification with the analysis area mask:
+    # Filter the habitat map with the analysis area mask:
 saltmarsh_vegetation_data = np.where((analysis_data==1), saltmarsh_veg, np.nan)
 
 #saltmarsh_vegetation_data = saltmarsh_vegetation.read(1)
@@ -117,32 +109,34 @@ saltmarsh_vegetation_data = np.where((analysis_data==1), saltmarsh_veg, np.nan)
 # with rasterio.open(output_path, 'w', driver='GTiff', height=filtered_saltmarsh_veg_data.shape[0], width=filtered_saltmarsh_veg_data.shape[1], count=1, dtype=filtered_saltmarsh_veg_data.dtype, transform=transform, crs=crs) as dst:
 #     dst.write(filtered_saltmarsh_veg_data, 1)
 
-    # From the filtered classification pick just the 'saltmarsh' class, if not, set to NoData:
+    # From the masked habitat map pick just the 'saltmarsh' class, if not, set to NoData:
 saltmarsh_area_data = np.where((saltmarsh_vegetation_data== saltmarsh_code), saltmarsh_vegetation_data, np.nan)
 
-    # Save the previous NumPy array as .tif:
+    # OPTIONAL (could be commented): save the filtered saltmarsh area as .tif
 output_path = os.path.join(out_folder, "saltmarsh_area.tif")
 with rasterio.open(output_path, 'w', driver='GTiff', height=saltmarsh_area_data.shape[0], width=saltmarsh_area_data.shape[1], count=1, dtype=saltmarsh_area_data.dtype, transform=transform, crs=crs) as dst:
     dst.write(saltmarsh_area_data, 1)
-# ------------------------------------------------------------------------------------------------------------------
 
-# ----------STEP 2: COMPUTE THE HISTORIC SUSPENDED MATTER IN THE SALTMARSH PLATFORM BASED ON 'CHANNEL' CLASS: ------
+
+# Step 3: Compute the historic suspended concentration in the entire analysis area:
 
     # Filter the 'Channel' class and obtain a mask (1 = True, 0 = False):
-channel_mask = (saltmarsh_vegetation_data == channel_code) # Pick pixels with 'Channel' class
+channel_mask = (saltmarsh_vegetation_data == channel_code) 
 binary_mask = np.where(channel_mask, 1.0, 0.0) # Set to 1 if 'Channel' and to 0 if not
 transform = from_origin(x_min, y_max, x_size, y_size) # Set transformation
-    # Save as a raster:
+
+    # OPTIONAL: Save as a raster
 binary_mask_path = os.path.join(out_folder, "channel_binary_condition_mask.tif") 
 with rasterio.open(binary_mask_path, 'w', driver='GTiff', width=width, height=height, count=1, dtype=np.float32, transform=transform, crs=crs) as dst:
     dst.write(binary_mask, 1)
+
     # Obtain the information of the mask and open in GDAL:
 channel_raster = gdal.Open(binary_mask_path, 0)
 band = channel_raster.GetRasterBand(1) # Get raster information
 geotransform = channel_raster.GetGeoTransform() # Set the Geotransformation
 
-    # Create empty 'distance_to_channel.tif' raster where we will write the distance value once it is computed:
-out_fn = os.path.join(out_folder, "distance_to_channels.tif") # Path
+    # Create empty 'distance_to_channel.tif' raster where we will write the distance to the channels:
+out_fn = os.path.join(out_folder, "distance_to_channels.tif") # Path and name
 driver = gdal.GetDriverByName('GTiff') # Type of data (GeoTiff)
 out_ds = driver.Create(out_fn, width, height, 1, gdal.GDT_Float32) # Create the raster in the path, with 'width' and 'height' and type of data
 out_ds.SetGeoTransform(geotransform) # Define the Geotransformation to the created raster
@@ -158,26 +152,28 @@ out_ds = None   # Set 'out_ds' to 'None'
 distance_to_waterways = rasterio.open(out_fn)
 distance_to_waterways_data = distance_to_waterways.read(1)
 
-    # Compute and save the Historic Suspended Matter with maximum suspended matter, the distance to Channels and the decay constant:
-historic_ss_saltmarsh_data = historic_ss * np.exp(decay_constant * distance_to_waterways_data)  # C = Cmax * e^(-decay * dist_to_channels)
-    # Save the result:
-output_path = os.path.join(out_folder, "historic_suspended_matter_saltmarsh_platform.tif") # Define Path
+    # Compute and save the Historic Suspended Matter Concentration in the analysis area with 'historic suspended matter', the 'distance to Channels' and the 'decay constant':
+historic_ss_saltmarsh_data = historic_ss * np.exp(decay_constant * distance_to_waterways_data)  # SSC = SSCmax * e^(-r * x)
+    
+    # OPTIONAL: Save the result
+output_path = os.path.join(out_folder, "historic_suspended_matter_saltmarsh_platform.tif") # Define Path and Name
 with rasterio.open(output_path, 'w', driver='GTiff', height=historic_ss_saltmarsh_data.shape[0], width=historic_ss_saltmarsh_data.shape[1], count=1, dtype=historic_ss_saltmarsh_data.dtype, transform=transform, crs=crs) as dst:
-    dst.write(historic_ss_saltmarsh_data, 1)    # Write the line 162 NumPy array in the 164 path as 'GeoTiff' ...
+    dst.write(historic_ss_saltmarsh_data, 1)
 print("Historic Suspended Matter correctly computed in the Wetland Platform")
-# ------------------------------------------------------------------------------------------------------------------
 
-# ----------------------- STEP 5: DEFINE AND COMPUTE THE TRAPPING COEFFICIENT EFFECT OF THE SALTMARSH -----------------------
+
+# Step 4: Define & compute the trapping coefficient effect of the saltmarsh
+    
     # Function to read raser data:
 def read_raster_data(file_path):
     with rasterio.open(file_path) as data:
         return data.read(1)
     
-    # File paths to 'historic_suspended_matter_saltmarsh_platform.tif' (line 164) raster:
+    # File paths to 'historic_suspended_matter_saltmarsh_platform.tif' (Historic Suspended Matter Concentration in the analysis area):
 #filtered_saltmarsh_veg_path = os.path.join(out_folder, "filtered_saltmarsh_vegetation_oka.tif")
 historic_ss_saltmarsh_path = os.path.join(out_folder, "historic_suspended_matter_saltmarsh_platform.tif")
 
-    # Read 'historic_suspended...' & elevation as Numpy Arrays for computation:
+    # Read as Numpy Arrays for computation:
 #saltmarsh_array = read_raster_data(filtered_saltmarsh_veg_path)
 historic_ss_saltmarsh_array = read_raster_data(historic_ss_saltmarsh_path)
 elevation_array = read_raster_data(elevation_path)
@@ -185,7 +181,7 @@ elevation_array = read_raster_data(elevation_path)
     # Filter the saltmarshes that the 'Kirwan model' assume that have accetion (saltmarshes below MSHW):
 floded_saltmarsh = np.where(((saltmarsh_area_data == saltmarsh_code) & ((mshw - elevation_array) > 0)), saltmarsh_code, np.nan)
 
-    # Filter the datasets of suspended matter and compute depth with respect to MSHW where saltmarsh is present, if not set to NoData:
+    # Mask the historic suspended matter concentration with the floded saltmarshes data and compute depth with respect to MSHW where floded saltmarsh is present, if not set to NoData:
 his_ss_mask = np.where((floded_saltmarsh == saltmarsh_code), historic_ss_saltmarsh_array, np.nan)
 depth_mask = np.where((floded_saltmarsh == saltmarsh_code), (mshw - elevation_array), np.nan)
 
@@ -193,18 +189,21 @@ depth_mask = np.where((floded_saltmarsh == saltmarsh_code), (mshw - elevation_ar
 avg_his_ss = np.nanmean(his_ss_mask) if not np.isnan(his_ss_mask).all() else np.nan
 avg_depth = np.nanmean(depth_mask) if not np.isnan(depth_mask).all() else np.nan
 
-    # From Kirwan et al, 2010 algorithm (adapted). E/t = C (q + S) D, compute average S:
+    # From Kirwan et al, 2010 algorithm (adapted). dE/dt = SSC (q + S) D, compute average S (trapping_saltmarsh):
 trapping_saltmarsh = (avg_accretion - (setling_coefficient * avg_his_ss * avg_depth)) / (avg_his_ss * avg_depth)
 print(f"The Average C in the saltmarsh platform is: {avg_his_ss}")
 print(f"The Average D in the saltmarsh platform is: {avg_depth}")
 print(f"The Average Trapping effect of the Saltmarshes is: {trapping_saltmarsh}")
+# -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# -------------------------- COMPUTE THE WETLAND EVOLUTION OF THE SCENARIOS ---------------------------------------------
 
-# The Scenarios will be computed using an adaptation of the 'Kirwan Model' (Kirwan, M. L., Guntenspergen, G. R., D'Alpaos, A., Morris, J. T., Mudd, S. M., and Temmerman, S. (2010), Limits on the adaptability of coastal marshes to rising sea level, Geophys. Res. Lett., 37, L23401, doi:10.1029/2010GL045489.)
-# In this adaptation we will compute yearly Accretion and every 10 years  we will update the distributions of wetland classess
-# using the .joblib file loaded in line 36 and pre-trained in our case study area. This way, we obtain dynamic maps according 
-# to each Sea Level Rise and Suspended Matter Scenarios:
+
+# -------------------------------------------------------- COMPUTE THE WETLAND EVOLUTION OF THE SCENARIOS -----------------------------------------------------------------------------
+
+# The Scenarios will be computed using Equation 4 from paper: PUT OUR PAPER
+
+# In this adaptation we will compute yearly Accretion and every 10 years  we will update the distributions of habitat classess using the .joblib file loaded in line 25 and pre-trained in our case study area. 
+# This way, we obtain dynamic maps according to each Sea Level Rise and Suspended Matter Scenarios:
 
     # Define the Time Lap of the computation (set fixed_start_year as start_year). End_year is included in the computation:
 start_year = 2023
