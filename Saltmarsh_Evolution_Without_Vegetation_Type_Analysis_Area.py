@@ -8,20 +8,27 @@ import pyproj
 import rasterio
 from rasterio.transform import from_origin
 
-# Output workspace:
-out_folder = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\evolution\glo_rcp45_slr_1_075m"
-
 # ------------------------------------------------------------------------- INPUTS --------------------------------------------------------------------------------------------------
+    # Output workspace:
+out_folder = r"out_workspace"
 
     # Baseline habitat map (classier result):
-saltmarsh_vegetation = rasterio.open(r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\model\5_pred\outputs\xgbc_images\responses.tif")
+saltmarsh_vegetation = rasterio.open(r"my_classifier\responses.tif")
+
+# Baseline habitat map codes:
+mudflat_code = 0
+saltmarsh_code = 1
+upland_code = 2
+channel_code = 3
+
     # Elevation (DTM) in m:
-elevation_path = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\data\Puerto_Real_DTM_interpolated_clipped.tif"
+elevation_path = r"my_DTM.tif"
+
     # Coordinate System:
 crs = pyproj.CRS.from_epsg(25829) # Coordinate System EPSG code
 
     # Load precomputed Classifier (.joblib):
-joblib_file = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\model\5_pred\outputs\xgbc_best_model_joblib.joblib"
+joblib_file = r"my_classifier\xgbc_best_model_joblib.joblib"
 sdm = joblib.load(joblib_file) 
 
     # Sea Level References with regards to the Digital Elevation Model:
@@ -31,8 +38,10 @@ mhw = 1.137
 mshw = 1.346
 maht = 2.029
 
-# Historic Suspended Matter Concentration (Could be obtained from Copernicus Marine Service: https://data.marine.copernicus.eu/products):
+# Historic Suspended Matter Concentration in the main channels (Could be obtained from Copernicus Marine Service: https://data.marine.copernicus.eu/products):
 historic_ss = 25.00 # Average value of SS in the main channel
+
+# Decay constant of suspended sediment concentration with distance to channels:
 decay_constant = -0.031 
 
 # Average Accretion of saltmarsh in m/yr:
@@ -45,22 +54,13 @@ setling_coefficient = 0.00009 # Paper: Kirwan, M. L., Guntenspergen, G. R., D’
 slr_rates = [0.01075] 
 ss_values = [(historic_ss*2)]
 
-# Baseline habitat map codes:
-mudflat_code = 0
-saltmarsh_code = 1
-upland_code = 2
-channel_code = 3
-
 # Analysis area (mask):
-analysis = rasterio.open(r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\Cadiz\data\analysis_area.tif")
+analysis = rasterio.open(r"my_analysis_area.tif")
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 
 # ----------------------------------------------------------------- COMPUTATION OF THE BASE CONDITIONS FOR THE MODEL -----------------------------------------------------------------
-
-# Open the Elevation dataset:
-#elevation = rasterio.open(elevation_path)
 
 # Step 1: Get Bounding Box, cellsize, transformation and nº of rows and columns of the study area (elevation has the same charateristics):
 with rasterio.open(elevation_path) as elevation_data:
@@ -98,24 +98,13 @@ elevation_data = elevation.read(1)
     # Filter the habitat map with the analysis area mask:
 saltmarsh_vegetation_data = np.where((analysis_data==1), saltmarsh_veg, np.nan)
 
-#saltmarsh_vegetation_data = saltmarsh_vegetation.read(1)
-
-    # Filter the vegetation data to define as Channel (water) values with lower elevation than Mean Sea Level
-    # and as Upland Areas values with higher elevation than Maximum Astronomical Tide:
-# filtered_saltmarsh_veg_data = np.where((saltmarsh_vegetation_data != 999) & (elevation_data > maht), upland_code, np.where((saltmarsh_vegetation_data != 999) & (elevation_data < msl), channel_code, saltmarsh_vegetation_data))
-
-#     # Save the filtered vegetation map:
-# output_path = os.path.join(out_folder, "filtered_saltmarsh_vegetation_oka.tif")
-# with rasterio.open(output_path, 'w', driver='GTiff', height=filtered_saltmarsh_veg_data.shape[0], width=filtered_saltmarsh_veg_data.shape[1], count=1, dtype=filtered_saltmarsh_veg_data.dtype, transform=transform, crs=crs) as dst:
-#     dst.write(filtered_saltmarsh_veg_data, 1)
-
     # From the masked habitat map pick just the 'saltmarsh' class, if not, set to NoData:
 saltmarsh_area_data = np.where((saltmarsh_vegetation_data== saltmarsh_code), saltmarsh_vegetation_data, np.nan)
 
     # OPTIONAL (could be commented): save the filtered saltmarsh area as .tif
-output_path = os.path.join(out_folder, "saltmarsh_area.tif")
+""" output_path = os.path.join(out_folder, "saltmarsh_area.tif")
 with rasterio.open(output_path, 'w', driver='GTiff', height=saltmarsh_area_data.shape[0], width=saltmarsh_area_data.shape[1], count=1, dtype=saltmarsh_area_data.dtype, transform=transform, crs=crs) as dst:
-    dst.write(saltmarsh_area_data, 1)
+    dst.write(saltmarsh_area_data, 1) """
 
 
 # Step 3: Compute the historic suspended concentration in the entire analysis area:
@@ -125,7 +114,7 @@ channel_mask = (saltmarsh_vegetation_data == channel_code)
 binary_mask = np.where(channel_mask, 1.0, 0.0) # Set to 1 if 'Channel' and to 0 if not
 transform = from_origin(x_min, y_max, x_size, y_size) # Set transformation
 
-    # OPTIONAL: Save as a raster
+    # Create raster
 binary_mask_path = os.path.join(out_folder, "channel_binary_condition_mask.tif") 
 with rasterio.open(binary_mask_path, 'w', driver='GTiff', width=width, height=height, count=1, dtype=np.float32, transform=transform, crs=crs) as dst:
     dst.write(binary_mask, 1)
@@ -156,10 +145,10 @@ distance_to_waterways_data = distance_to_waterways.read(1)
 historic_ss_saltmarsh_data = historic_ss * np.exp(decay_constant * distance_to_waterways_data)  # SSC = SSCmax * e^(-r * x)
     
     # OPTIONAL: Save the result
-output_path = os.path.join(out_folder, "historic_suspended_matter_saltmarsh_platform.tif") # Define Path and Name
+""" output_path = os.path.join(out_folder, "historic_suspended_matter_saltmarsh_platform.tif") # Define Path and Name
 with rasterio.open(output_path, 'w', driver='GTiff', height=historic_ss_saltmarsh_data.shape[0], width=historic_ss_saltmarsh_data.shape[1], count=1, dtype=historic_ss_saltmarsh_data.dtype, transform=transform, crs=crs) as dst:
     dst.write(historic_ss_saltmarsh_data, 1)
-print("Historic Suspended Matter correctly computed in the Wetland Platform")
+print("Historic Suspended Matter correctly computed in the Wetland Platform") """
 
 
 # Step 4: Define & compute the trapping coefficient effect of the saltmarsh
@@ -170,11 +159,9 @@ def read_raster_data(file_path):
         return data.read(1)
     
     # File paths to 'historic_suspended_matter_saltmarsh_platform.tif' (Historic Suspended Matter Concentration in the analysis area):
-#filtered_saltmarsh_veg_path = os.path.join(out_folder, "filtered_saltmarsh_vegetation_oka.tif")
 historic_ss_saltmarsh_path = os.path.join(out_folder, "historic_suspended_matter_saltmarsh_platform.tif")
 
     # Read as Numpy Arrays for computation:
-#saltmarsh_array = read_raster_data(filtered_saltmarsh_veg_path)
 historic_ss_saltmarsh_array = read_raster_data(historic_ss_saltmarsh_path)
 elevation_array = read_raster_data(elevation_path)
 
@@ -189,7 +176,7 @@ depth_mask = np.where((floded_saltmarsh == saltmarsh_code), (mshw - elevation_ar
 avg_his_ss = np.nanmean(his_ss_mask) if not np.isnan(his_ss_mask).all() else np.nan
 avg_depth = np.nanmean(depth_mask) if not np.isnan(depth_mask).all() else np.nan
 
-    # From Kirwan et al, 2010 algorithm (adapted). dE/dt = SSC (q + S) D, compute average S (trapping_saltmarsh):
+    # From https://doi.org/10.1016/j.scitotenv.2024.178164 dE/dt = SSC (q + S) D, compute average S (trapping_saltmarsh):
 trapping_saltmarsh = (avg_accretion - (setling_coefficient * avg_his_ss * avg_depth)) / (avg_his_ss * avg_depth)
 print(f"The Average C in the saltmarsh platform is: {avg_his_ss}")
 print(f"The Average D in the saltmarsh platform is: {avg_depth}")
@@ -200,9 +187,9 @@ print(f"The Average Trapping effect of the Saltmarshes is: {trapping_saltmarsh}"
 
 # -------------------------------------------------------- COMPUTE THE WETLAND EVOLUTION OF THE SCENARIOS -----------------------------------------------------------------------------
 
-# The Scenarios will be computed using Equation 4 from paper: PUT OUR PAPER
+# The Scenarios will be computed using Equation 4 from https://doi.org/10.1016/j.scitotenv.2024.178164
 
-# In this adaptation we will compute yearly Accretion and every 10 years  we will update the distributions of habitat classess using the .joblib file loaded in line 25 and pre-trained in our case study area. 
+# Here we will compute yearly Accretion and every 10 years  we will update the distributions of habitat classess using the trained ML classifier (.joblib) file. 
 # This way, we obtain dynamic maps according to each Sea Level Rise and Suspended Matter Scenarios:
 
     # Define the Time Lap of the computation (set fixed_start_year as start_year). End_year is included in the computation:
@@ -217,20 +204,7 @@ total_accretion = 0
 with rasterio.open(elevation_path) as elevation_data:
     elevation = elevation_data.read(1).astype(float)
 
-    # Load the filtered vegetation/classificarion map:
-# filtered_saltmarsh_veg = rasterio.open(os.path.join(out_folder, "filtered_saltmarsh_vegetation_oka.tif")).read(1)
-
-    # Define a function to calculate primary productivity (pp) for each species
-# def calculate_pp(saltmarsh_veg, depth):
-#     pp = np.zeros_like(depth)
-#     for species_id, constants in constants_dict.items():
-#         mask = (saltmarsh_veg == species_id)
-#         pp += np.where(mask, (constants['a'] * depth + constants['b'] * depth**2 + constants['c']), 0)
-#     #Filter pp to avoid negative values, if pp is negative it will be defined as 0:
-#     pp = np.where((pp >= 0), pp, 0)
-#     return pp
-
-    # Compute Depth in Spring High Tides and Mean High Tides, this last one can be deleted as it is not used in the model:
+    # Compute Depth in Spring High Tides and Mean High Tides:
 depth_mshw = mshw - elevation
 depth_mhw = mhw - elevation
 
@@ -248,31 +222,18 @@ for slr_rate in slr_rates:
         distance_to_waterways_data = distance_to_waterways.read(1)
         depth_mshw = mshw - elevation
         depth_mhw = mhw - elevation
-        #filtered_saltmarsh_veg = rasterio.open(os.path.join(out_folder, "filtered_saltmarsh_vegetation_oka.tif")).read(1)
         saltmarsh_vegetation_data = saltmarsh_vegetation.read(1)
         saltmarsh_veg = saltmarsh_vegetation.read(1)
-        #saltmarsh_vegetation_data = np.where((analysis_data==1), saltmarsh_veg, np.nan)
 
-
-        # # Read again the first distance to channels dataset to reset the distance value:
-        # distance_to_waterways = rasterio.open(os.path.join(out_folder, "distance_to_channels.tif"))
-        # distance_to_waterways_data = distance_to_waterways.read(1)
-        # Compute the actual suspended matter in the wetland platform like in the Step 2:
+        # Compute the actual suspended matter in the wetland platform:
         ss_wetland = ss * np.exp(decay_constant * distance_to_waterways_data)
         # Save the suspended matter file:
         with rasterio.open(os.path.join(scenario_folder, f"suspended_matter_saltmarsh_platform_{slr_rate}_ss_{ss}_{start_year}.tif"), 'w', driver='GTiff', height=ss_wetland.shape[0], width=ss_wetland.shape[1], count=1, dtype=ss_wetland.dtype, transform=distance_to_waterways.transform, crs=crs) as dst:
             dst.write(ss_wetland, 1) 
-        # Compute the PP for the first year:
-        # pp = calculate_pp(filtered_saltmarsh_veg, depth_mhw)
-        # pp_result_path = os.path.join(scenario_folder, f"pp_{start_year}.tif")
-        # with rasterio.open(pp_result_path, 'w', driver='GTiff', height=ss_wetland.shape[0], width=ss_wetland.shape[1], count=1, dtype=ss_wetland.dtype, transform=transform, crs=crs) as dst:
-        #     dst.write(pp, 1)
 
         # Iterate over years and compute the saltmarsh evolution model
         for year in range(start_year, end_year + 1):
-            # Compute Primary Productivity:
-            # pp = calculate_pp(filtered_saltmarsh_veg, depth_mhw)
-            # Compute Accretion:
+            # Compute Accretion in Saltmarshes and Mudflats:
             accretion = np.where((depth_mshw >= 0) & (saltmarsh_vegetation_data == mudflat_code), (ss_wetland * setling_coefficient * depth_mshw), 0)
             accretion += np.where((depth_mshw >= 0) & (saltmarsh_vegetation_data == saltmarsh_code), (ss_wetland * (setling_coefficient + trapping_saltmarsh)  * depth_mshw), 0)
             # Aggregate Accretion in the 'total_accretion' variable:
@@ -294,7 +255,6 @@ for slr_rate in slr_rates:
                 # Accretion in 2027.
 
                 # Create folders to store the results:
-                #original_predictors_folder = r"C:\Users\beñat.egidazu\Desktop\PhD\Wetland_Modelling\Data\Oka\accretion_model\sdm_predictors"
                 step_path = os.path.join(scenario_folder, str(year))
                 os.makedirs(step_path, exist_ok=True)
                 after_step_path = os.path.join(scenario_folder, str(year + 1))
@@ -306,11 +266,6 @@ for slr_rate in slr_rates:
                 total_accretion_path = os.path.join(step_path, f"total_accretion_{year}.tif")
                 with rasterio.open(total_accretion_path, 'w', driver='GTiff', height=total_accretion.shape[0], width=total_accretion.shape[1], count=1, dtype=total_accretion.dtype, transform=transform, crs=crs) as dst:
                     dst.write(total_accretion, 1)
-
-                #Save the pp results:
-                # pp_result_path = os.path.join(step_path, f"pp_{year}.tif")
-                # with rasterio.open(pp_result_path, 'w', driver='GTiff', height=ss_wetland.shape[0], width=ss_wetland.shape[1], count=1, dtype=ss_wetland.dtype, transform=transform, crs=crs) as dst:
-                #     dst.write(pp, 1)
 
                 #Save the depth_mshw results:
                 depth_mshw_result_path = os.path.join(after_step_path, f"depth_mshw_{year + 1}.tif")
@@ -379,13 +334,9 @@ for slr_rate in slr_rates:
                     for index, row in gdf.iterrows():
                         coords = np.array(row['geometry'].coords.xy)
                         x, y = coords[0], coords[1]
-                        # col = ((x - x_min) / x_size).astype(int)
-                        # row = ((y_max - y) / y_size).astype(int)
-                        # raster[row, col] = 1.0
                         col = np.clip(((x - x_min) / x_size).astype(int), 0, raster.shape[1] - 1)
                         row = np.clip(((y_max - y) / y_size).astype(int), 0, raster.shape[0] - 1)
                         raster[row, col] = 1.0
-
 
                             # Create a GeoTIFF to have the isobath mask:
                     transform = from_origin(x_min, y_max, x_size, y_size)
@@ -416,39 +367,31 @@ for slr_rate in slr_rates:
                     with rasterio.open(out_fn, 'r') as dst:
                         distance_value = dst.read(1)
 
-                            # Now you can perform the corrected_distance operation. Elevations below the threshold 
-                            # will be set with a negative value (distance * -1) and elevations above the threshold 
-                            # with positive values:
+                            # Now you can perform the corrected_distance operation. Elevations below the threshold will be set with a negative value (distance * -1) and elevations above the threshold with positive values:
                     corrected_distance = np.where(new_elevation > level, distance_value, np.where(new_elevation < level, (distance_value * (-1)), 0))
 
-                            # Avoid -0 values:
+                            # Avoid -0 values and set to 0 in case they exist:
                     corrected_distance = np.where(corrected_distance != -0, corrected_distance, 0)
 
                     # Open the distance raster again in write mode ('w') to save the corrected distance
                     with rasterio.open(out_fn, 'w', driver='GTiff', width=width, height=height, dtype=np.float32, count=1, crs=crs, transform=transform) as dst:
                         dst.write(corrected_distance, 1)
 
-                # Contour levels:
-                contour_levels = [
-                    
-                    
+                # Contour levels (set those ones important as predictor variables):
+                contour_levels = [  
                     #(msl + (slr_rate * (year - fixed_start_year +1))),
                     (mhw + (slr_rate * (year - fixed_start_year + 1))),
                     (mnhw + (slr_rate * (year - fixed_start_year + 1))),
                     (maht + (slr_rate * (year - fixed_start_year + 1))),
-                    #,
                     (mshw + (slr_rate * (year - fixed_start_year + 1)))
-                    
-                    #
                 ]
 
                 # Obtain all the corrected distance to Isobaths iterating the 'contour levels and contour types':
-                #contour_types = [ "distance_to_MHW_countour_corrected.tif", "distance_to_MNHW_contour_corrected.tif","distance_to_Maximum_Astronomical_High_Tide_countour_corrected.tif"]
                 contour_types = [ "distance_to_MHW_contour_corrected.tif", "distance_to_MNHW_countour_corrected.tif", "distance_to_MAHT_contour_corrected.tif", "distance_to_MSHW_countour_corrected_25829.tif"]
                 for level, contour_type in zip(contour_levels, contour_types):
                     process_contour_level(level, contour_type)
 
-                # Elevation related to MHW:
+                # Elevation related to MHW (other predictor):
                 elev_related_mhw = new_elevation - (mhw + (slr_rate * (year - fixed_start_year + 1)))
                 elev_related_mhw_path = os.path.join(predictors_folder, f"elevation_related_to_MHW_25830.tif")
                 with rasterio.open(elev_related_mhw_path, 'w', driver='GTiff', height=total_accretion.shape[0], width=total_accretion.shape[1], count=1, dtype=total_accretion.dtype, transform=transform, crs=crs) as dst:
@@ -456,12 +399,7 @@ for slr_rate in slr_rates:
 
                 print("Now we have all the new predictor rasters in the timestep folder/predictors...")
 
-                # Create an array with the Updated Predictor Rasters:
-                # raster_predictors = [
-                #     os.path.join(predictors_folder, raster)
-                #     for raster in os.listdir(predictors_folder)
-                #     if fnmatch.fnmatch(raster, '*.tif')
-                # ]
+                # Predictor paths:
                 raster_predictors = [
                     elev_related_mhw_path,
                     os.path.join(predictors_folder, contour_types[0]),
@@ -486,36 +424,10 @@ for slr_rate in slr_rates:
                     # Vegetation:
                 saltmarsh_vegetation = rasterio.open(os.path.join(after_step_path, "responses.tif"))
                 saltmarsh_veg_np = saltmarsh_vegetation.read(1)
-                #saltmarsh_veg = saltmarsh_vegetation.read(1)
-                #analysis_data = rasterio.open(analysis).read(1)
-                #saltmarsh_vegetation_data = np.where((analysis_data==1), saltmarsh_veg, np.nan)
-                #evolution_raster = os.path.join(after_step_path, "oka_estuary_classes.tif")
-                #with rasterio.open(evolution_raster, 'w', driver='GTiff', height=analysis_data.shape[0], width=analysis_data.shape[1], count=1, dtype=analysis_data.dtype, transform=transform, crs=crs) as dst:
-                #    dst.write(saltmarsh_vegetation_data, 1)
+
                     # New Elevation Data:
                 step_elevation = rasterio.open(new_elevation_path)
                 step_elevation_data = step_elevation.read(1)
-                    # Filter New Vegetation/Class Map:
-                # filtered_saltmarsh_veg_data = np.where(
-                #     (saltmarsh_vegetation_data != 999) & (step_elevation_data > (maht + (slr_rate * (year - fixed_start_year + 1)))),
-                #     upland_code,
-                # np.where((saltmarsh_vegetation_data != 999) & (step_elevation_data < (msl + (slr_rate * (year - fixed_start_year +1)))), channel_code, saltmarsh_vegetation_data)
-                # )
-                    # Save filtered vegetation map:
-                # step_veg_path = os.path.join(after_step_path, "filtered_saltmarsh_vegetation_oka_{}.tif".format(year + 1))
-                # with rasterio.open(step_veg_path, 'w', driver='GTiff', height=filtered_saltmarsh_veg_data.shape[0], width=filtered_saltmarsh_veg_data.shape[1], count=1, dtype=filtered_saltmarsh_veg_data.dtype, transform=transform, crs=crs) as dst:
-                #     dst.write(filtered_saltmarsh_veg_data, 1)
-
-                    # Open the filtered vegetation data to be used in next Accretion and PP computations:
-                #filtered_saltmarsh_veg = rasterio.open(step_veg_path).read(1)
-
-                # Compute the Primary Productivity of after the SDM run, to see the change of PP from one year to other:
-                #pp = calculate_pp(filtered_saltmarsh_veg, depth_mhw)
-
-                #Save the pp results:
-                # pp_result_path = os.path.join(after_step_path, f"pp_{year + 1}.tif")
-                # with rasterio.open(pp_result_path, 'w', driver='GTiff', height=ss_wetland.shape[0], width=ss_wetland.shape[1], count=1, dtype=ss_wetland.dtype, transform=transform, crs=crs) as dst:
-                #     dst.write(pp, 1)
                 
                 # COMPUTE THE DISTANCE TO THE NEW CHANNEL CLASS:
                     # Filter the analysis area:
@@ -553,8 +465,7 @@ for slr_rate in slr_rates:
                     # Close the resulting raster:
                 out_ds = None
 
-                    # Open the resulting raster again and read as NumPy Array. In this way 'ss_wetland' is computed
-                    # with the new distance... :
+                    # Open the resulting raster again and read as NumPy Array. In this way 'ss_wetland' is computed with the new distance to channels:
                 distance_to_waterways = rasterio.open(out_fn)
                 distance_to_waterways_data = distance_to_waterways.read(1)
 

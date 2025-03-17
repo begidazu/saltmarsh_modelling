@@ -6,12 +6,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import geopandas as gpd 
-#from statistics import mean, stdev
 from pyimpute import load_training_vector, load_targets, impute
 import joblib
-#from sklearn import model_selection
 from sklearn.model_selection import RandomizedSearchCV, cross_val_score, StratifiedKFold, RepeatedStratifiedKFold
-from numpy import mean, std
 from scipy.stats import uniform as sp_randFloat, randint as sp_randInt
 from sklearn.multiclass import OneVsOneClassifier 
 from sklearn.ensemble import RandomForestClassifier
@@ -22,7 +19,7 @@ from sklearn.feature_selection import RFECV
 from shapely.geometry import Point
 
 #Input and Output workspaces: 
-my_workspace = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\model\6_pred" 
+my_workspace = r"my_path" 
 input_folder = os.path.join(my_workspace, "inputs")
 output_folder = os.path.join(my_workspace, "outputs")
 
@@ -31,23 +28,22 @@ os.makedirs(input_folder, exist_ok=True)
 os.makedirs(output_folder, exist_ok=True)
 
 # Import the sample data:
-sample_path = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\data\random_500_points.shp"
+sample_path = r"sample_data"
 sample_data = gpd.GeoDataFrame.from_file(sample_path)
 
 # Convert the Geopandas DataFrames X_df (descriptors) and Y_df (response) variables:
-#X_df = sample_data.loc[:, ["dist_fresh","elev_MHW", "dist_MAT", "dist_MSHW", "dist_MHW", "dist_MNHW", "dist_MSL"]]
 X_df = sample_data.loc[:, ["elev_MHT", "dist_MAT", "dist_mshw", "dist_MNHW", "dist_MSL", "dist_MHW"]]   # Field names with the predictor variables
 y_df = sample_data["class"].values.ravel()  # Target habitats/categories
 print(X_df)
 
-#------------------------------------------------------------- THE FIRST PART OF THE CODE IS FOR FEATURE SELECTION -------------------------------------------------------------------
+#------------------------------------------------------------- THE FIRST PART OF THE CODE CONDUCTS FEATURE SELECTION -------------------------------------------------------------------
 
 # ------ IN THE FOLLOWING PIECE OF CODE WE WILL REDUCE THE NUMBER OF DESCRIPTOR VARIABLES FOR OUR FINAL Species Distribution Model/Machine Learning classifier -----------------------
 
 # Step 1: Define the Random Forest Classifier for feature selection:
 rf_classifier = RandomForestClassifier(random_state=1)
 
-# Scorer for feature elimination:
+# Scorer for feature selection:
 roc_auc_scorer = make_scorer(roc_auc_score, needs_proba=True,  average='macro', multi_class='ovo')
 
 # Step 2: Perform Recursive Feature Elimination with Cross-Validation (RFECV)
@@ -144,7 +140,7 @@ resulting_gdf.to_file(shapefile_path)
 reimported_gdf = gpd.GeoDataFrame.from_file(shapefile_path)
 
 # Step 2: Load the descriptor variables folder and filter the folder to keep just the X most important ones:
-predictors_path = r"C:\Users\beñat.egidazu\Desktop\PhD\Papers\Saltmarshes\Modelos\IH\Santander\data\predictors_clipped" # Workspace where the predictors .tif are stored. Notice that all predictors SHOULD HAVE same size (nº rows & columns)
+predictors_path = r"predictors_path" # Workspace where the predictors .tif are stored. Notice that all predictors SHOULD HAVE same size (nº rows & columns)
 
     # Step 2.1: Create 'selected_predictors' folder in 'input_folder'
 selected_predictors_folder = os.path.join(input_folder, "selected_predictors")
@@ -152,10 +148,10 @@ os.makedirs(selected_predictors_folder, exist_ok=True)
 
     # Step 2.2: Define a dictionary that maps the selected feature names to their corresponding file paths. Change names accordingly to match .tif names in 'predictors_path'
 selected_features_files = {
-    #'dist_fresh': os.path.join(predictors_path, 'distance_to_freshwater_river_inputs_25830.tif'),
-    #'dist_OSM_c': os.path.join(predictors_path, 'distance_to_OSM_coastline_25830.tif'),
+    'dist_fresh': os.path.join(predictors_path, 'distance_to_freshwater_river_inputs_25830.tif'),
+    'dist_OSM_c': os.path.join(predictors_path, 'distance_to_OSM_coastline_25830.tif'),
     'elev_MHT': os.path.join(predictors_path, 'elevation_related_to_MHW.tif'),
-    #'slope': os.path.join(predictors_path, 'slope_25830.tif'),
+    'slope': os.path.join(predictors_path, 'slope_25830.tif'),
     'dist_MAT': os.path.join(predictors_path, 'distance_to_MAHT_countour_corrected.tif'),
     'dist_mshw': os.path.join(predictors_path, 'distance_to_MSHW_countour_corrected.tif'),
     'dist_MHW': os.path.join(predictors_path, 'distance_to_MHW_countour_corrected.tif'),
@@ -184,7 +180,7 @@ target_xs, raster_info = load_targets(raster_predictors)
 train_xs.shape, train_y.shape
 print("Pyimpute workflow prepared!")
 
-# Step 5: Implement the sckikit-learn classifiers:
+# Step 5: Implement the scikit-learn classifiers:
 CLASS_MAP = {
     'xgbc': {
         'model': OneVsOneClassifier(XGBClassifier(), n_jobs=-1),
@@ -198,7 +194,6 @@ CLASS_MAP = {
 }
 
 # Step 6: Lists to store results for XGBoost classifier
-#results = []
 best_estimators = []
 
 # Step 7: Implement Nested Cross Validation:
@@ -213,7 +208,7 @@ for name, classifier_info in CLASS_MAP.items(): # Create a loop just in case you
     inner_cv = StratifiedKFold(n_splits=5, shuffle = True, random_state=42)
 
     # Outer Loop of nested cross-validation:
-    outer_cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=None)
+    outer_cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=42)
 
     # Define RandomizedSearchCV with the classifier, parameter grid and inner CV:
     iter_number = 20    # Number of parameter settings that are sampled:
@@ -240,10 +235,7 @@ for name, classifier_info in CLASS_MAP.items(): # Create a loop just in case you
 
         # If it's the first iteration or if the current best is better than the previous best, save it:
         if best_estimator is None or current_best_estimator.score(X_test_outer, y_test_outer) > best_estimator.score(X_test_outer, y_test_outer):
-            best_estimator =  current_best_estimator
-            
-
-    # ----- SAVE THE BEST ESTIMATOR AS PMML AND JOBLIB FILES: ------------
+            best_estimator =  current_best_estimator           
     
     #Print the best estimator parameters:
     print("Best parameters:")
@@ -258,22 +250,11 @@ for name, classifier_info in CLASS_MAP.items(): # Create a loop just in case you
         shutil.rmtree(ml_out_folder_path)
     os.mkdir(ml_out_folder_path)
 
-    # Step 9: Use the best_estimator to make predictions and save the results:
-    impute(target_xs, best_estimator, raster_info, outdir=ml_out_folder_path, class_prob=True, certainty=True)
-
-    # Step 10: Save the best_estimator (trained XGBClassifier) as a PMML file:
-    pmml_filename = os.path.join(output_folder, f'{name}_best_model_pmml.pmml')
-    if os.path.exists(pmml_filename):
-        os.remove(pmml_filename)
-
-    # Step 11: Create a PMMLPipeline and add the classifier to it
-    pmml_pipeline = PMMLPipeline([("classifier", search.best_estimator_)])
-
-    # Step 12: Save the PMMLPipeline as a PMML file
-    sklearn2pmml(pmml_pipeline, pmml_filename)
-
-    # Step 13: Save the best_estimator (trained XGBClassifier) as a .joblib file (if needed):
+    # Step 9: Save the best_estimator (trained XGBClassifier) as a .joblib file (if needed):
     joblib.dump(best_estimator, os.path.join(output_folder, f"{name}_best_model_joblib.joblib"))
+
+    # Step 10: Use the best_estimator to make predictions and save the results:
+    impute(target_xs, best_estimator, raster_info, outdir=ml_out_folder_path, class_prob=True, certainty=True)
 
     # ------------------------------------------------------ XGBoost train, test and validation Done! --------------------------------------------------------------------------------
 
