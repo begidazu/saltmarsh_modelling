@@ -6,4 +6,4 @@ This repository contains the Python codes used to train the XGBoost Classifiers,
 Access the methodology paper: [Egidazu-de la Parte **et al.**, 2025](https://doi.org/10.1016/j.scitotenv.2024.178164)
 
 ## License
-See the [License](https://github.com/begidazu/saltmarsh_modelling/blob/main/LICENSE.txt) file for license rights and limitations (CC BY-NC-SA 4.0).
+See the [License](https://github.com/begidazu/saltmarsh_modelling/blob/main/LICENSE.txt) file for license rights and limitations (CC BY-NC-SA 4.0). 
